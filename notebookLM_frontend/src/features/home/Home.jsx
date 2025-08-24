@@ -57,7 +57,7 @@ export default function Home() {
   ]
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col items-center justify-center px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16">
       <div className="text-center mb-12">
         <h1 className="text-5xl md:text-6xl font-light tracking-wide mb-4">InsightLLM</h1>
         <p className="text-gray-400 text-lg">Chat with your books, discover insights</p>
