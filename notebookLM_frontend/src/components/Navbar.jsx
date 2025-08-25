@@ -35,7 +35,7 @@ export default function Sidebar() {
 
   return (
     <div
-      className={`fixed left-0 top-0 h-full bg-gray-900 border-r border-gray-700 z-40 transition-all duration-300 ease-in-out ${
+      className={`fixed left-0 top-0 h-full bg-black-900 border-r border-gray-700 z-40 transition-all duration-300 ease-in-out ${
         isCollapsed ? "w-16" : "w-64"
       }`}
     >
@@ -142,7 +142,6 @@ export default function Sidebar() {
                     key={chat.id}
                     className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800 transition-colors"
                   >
-                    <span className="text-sm">{chat.icon}</span>
                     <span className="truncate text-left">{chat.title}</span>
                   </button>
                 ))}

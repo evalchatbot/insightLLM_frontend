@@ -20,7 +20,6 @@
 /* Improved link styling with better hover states */
 a {
   font-weight: 500;
-  color: #22d3ee;
   text-decoration: none;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
