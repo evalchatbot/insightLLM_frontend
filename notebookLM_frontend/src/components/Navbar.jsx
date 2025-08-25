@@ -3,7 +3,7 @@
 import { Link, NavLink, useNavigate } from "react-router-dom"
 import { useAuthStore } from "../store/auth"
 import { useState, useEffect } from "react"
-import { Menu } from "lucide-react"
+import { PanelRight } from "lucide-react"
 
 function sidebarNavClass({ isActive }) {
   return `flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${isActive ? "bg-gray-800 text-white" : "text-gray-300"}`
@@ -55,7 +55,7 @@ export default function Sidebar() {
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-1.5 rounded-md text-gray-400 hover:text-white transition-colors"
               >
-                <Menu className="w-4 h-4" />
+                <PanelRight className="w-4 h-4" />
               </button>
             </>
           )}
@@ -72,7 +72,7 @@ export default function Sidebar() {
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="absolute inset-0 flex items-center justify-center p-1.5 rounded-md text-gray-400 hover:text-white transition-all duration-200 opacity-0 group-hover:opacity-100"
               >
-                <Menu className="w-4 h-4" />
+                <PanelRight className="w-4 h-4" />
               </button>
             </div>
           )}

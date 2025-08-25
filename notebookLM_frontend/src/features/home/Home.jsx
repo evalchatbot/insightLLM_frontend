@@ -48,14 +48,6 @@ export default function Home() {
     navigate("/chat")
   }
 
-  const categories = [
-    { label: "Summarize", icon: "📄" },
-    { label: "Analyze", icon: "🔍" },
-    { label: "Quiz Me", icon: "❓" },
-    { label: "Explain", icon: "💡" },
-    { label: "Compare", icon: "⚖️" },
-  ]
-
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col items-center justify-center px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16">
       <div className="text-center mb-12">
@@ -100,20 +92,6 @@ export default function Home() {
         </form>
       </div>
 
-      <div className="flex flex-wrap justify-center gap-3 mb-12">
-        {categories.map((category) => (
-          <button
-            key={category.label}
-            onClick={() => {
-              setSearchQuery(`${category.label} my uploaded content`)
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-full text-gray-300 hover:text-white hover:border-gray-500 transition-colors text-sm"
-          >
-            <span>{category.icon}</span>
-            {category.label}
-          </button>
-        ))}
-      </div>
 
       {token && (
         <div className="flex flex-wrap justify-center gap-4 mb-8">
