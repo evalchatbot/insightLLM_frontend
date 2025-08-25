@@ -107,7 +107,7 @@ export default function Home() {
 
       <div className="flex-1 flex flex-col items-center justify-center">
         <div className="text-center mb-12 pt-16">
-          <h1 className="text-5xl md:text-6xl font-light tracking-wide mb-4">insightlm</h1>
+          <h1 className="text-5xl md:text-6xl font-light tracking-wide mb-4">InsightLLM</h1>
           <p className="text-gray-400 text-lg">Chat with your books, discover insights</p>
         </div>
 
