@@ -45,49 +45,40 @@ export default function Home() {
     if (!searchQuery.trim()) return
 
 
-    try {
-      const sid = await ensureSession();
-      const userId = useAuthStore.getState().user?.id;
-      const res = await askChat({
-          user_id: userId,
-          session_id: sid,
-        question: userMsg.content,
-        genre,
-      });
-
-    if (!token) {
-      // Navigate to login if not authenticated
-      window.location.href = "/login"
-      return
-    }
-
-    // Add user message to chat
-    const userMessage = {
-      id: Date.now(),
-      role: "user",
-      content: searchQuery.trim(),
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setIsInChatMode(true)
-    setIsLoading(true)
-
-    const currentQuery = searchQuery
-    setSearchQuery("")
-
-    // Simulate AI response (replace with actual API call)
-    setTimeout(() => {
-      const aiMessage = {
-        id: Date.now() + 1,
-        role: "assistant",
-        content: `I understand you're asking about "${currentQuery}". This is where I would provide insights based on your uploaded books and the selected genre: ${selectedGenre}.`,
-        timestamp: new Date(),
+      try {
+        const sid = await ensureSession();
+        const userId = useAuthStore.getState().user?.id;
+        // Simulate user message
+        if (!token) {
+          window.location.href = "/login";
+          return;
+        }
+        const userMessage = {
+          id: Date.now(),
+          role: "user",
+          content: searchQuery.trim(),
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, userMessage]);
+        setIsInChatMode(true);
+        setIsLoading(true);
+        const currentQuery = searchQuery;
+        setSearchQuery("");
+        // Simulate AI response (replace with actual API call)
+        setTimeout(() => {
+          const aiMessage = {
+            id: Date.now() + 1,
+            role: "assistant",
+            content: `I understand you're asking about "${currentQuery}". This is where I would provide insights based on your uploaded books and the selected genre: ${selectedGenre}.`,
+            timestamp: new Date(),
+          };
+          setMessages((prev) => [...prev, aiMessage]);
+          setIsLoading(false);
+        }, 1500);
+      } catch (err) {
+        console.error(err);
       }
-      setMessages((prev) => [...prev, aiMessage])
-      setIsLoading(false)
-    }, 1500)
-  }
+    }
 
   const categories = [
     { label: "Summarize", icon: "📄" },
