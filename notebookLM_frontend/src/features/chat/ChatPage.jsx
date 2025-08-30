@@ -1,158 +1,49 @@
-// src/features/chat/ChatPage.jsx
-import { useEffect, useRef, useState } from 'react';
-import { getGenres, askChat, createSession } from '../../api/endpoints';
-import { useAuthStore } from '../../store/auth';
+"use client"
 
-function Banner({ kind = 'info', children }) {
-  const base =
-    kind === 'error'
-      ? 'bg-red-50 text-red-700 border-red-200'
-      : kind === 'warn'
-      ? 'bg-amber-50 text-amber-800 border-amber-200'
-      : 'bg-blue-50 text-blue-700 border-blue-200';
-  return (
-    <div className={`border rounded p-3 text-sm ${base}`}>
-      {children}
-    </div>
-  );
-}
+import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
+import { ChevronDown } from "lucide-react"
+import { useAuthStore } from "../../store/auth"
+import { createSession } from "../../api/endpoints"
 
-function Message({ role, content, onCopy }) {
-  const isUser = role === 'user';
-  return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`relative max-w-[80%] rounded-2xl p-3 text-sm shadow-sm
-        ${isUser ? 'bg-black text-white' : 'bg-white border'}`}
-      >
-        <div className="whitespace-pre-wrap">{content}</div>
-        <button
-          onClick={onCopy}
-          className={`absolute -bottom-3 right-2 text-[10px] px-2 py-0.5 rounded border ${
-            isUser ? 'bg-white text-black' : 'bg-gray-50 text-gray-700'
-          }`}
-          title="Copy"
-        >
-          Copy
-        </button>
-      </div>
-    </div>
-  );
-}
+export default function Home() {
+  const token = useAuthStore((s) => s.accessToken)
+  const user = useAuthStore((s) => s.user)
+  const sessionId = useAuthStore((s) => s.sessionId)
+  const setSessionId = useAuthStore((s) => s.setSessionId)
 
-function Sources({ items }) {
-  if (!items?.length) return null;
-  return (
-    <div className="space-y-2">
-      <h3 className="font-semibold">Sources</h3>
-      <div className="space-y-2">
-        {items.map((s, i) => (
-          <details key={i} className="bg-white border rounded p-3">
-            <summary className="cursor-pointer">
-              <span className="font-medium">{s.book_title || s.book_id || `Source ${i + 1}`}</span>
-              {s.chunk_index != null && (
-                <span className="text-gray-500"> — chunk {s.chunk_index}</span>
-              )}
-            </summary>
-            {s.text && (
-              <div className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">
-                {s.text}
-              </div>
-            )}
-          </details>
-        ))}
-      </div>
-    </div>
-  );
-}
+  const [searchQuery, setSearchQuery] = useState("")
+  const [busySession, setBusySession] = useState(false)
+  const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false)
+  const [selectedGenre, setSelectedGenre] = useState("All Genres")
 
-export default function ChatPage() {
-  const [genres, setGenres] = useState([]);
-  const [genre, setGenre] = useState(localStorage.getItem('chat.genre') || '');
-  const [draft, setDraft] = useState('');
-  const [messages, setMessages] = useState([]); // [{role:'user'|'assistant', content:string, ts:number}]
-  const [lastSources, setLastSources] = useState([]);
-  const [meta, setMeta] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [info, setInfo] = useState('');
-  const sessionId = useAuthStore((s) => s.sessionId);
-  const setSessionId = useAuthStore((s) => s.setSessionId);
-  const scrollerRef = useRef(null);
+  const [messages, setMessages] = useState([])
+  const [isInChatMode, setIsInChatMode] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
-  // scroll to bottom on new messages
   useEffect(() => {
-    scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, busy]);
-
-  // load genres
-  useEffect(() => {
-    (async () => {
-      try {
-        const g = await getGenres();
-        const arr = Array.isArray(g?.genres) ? g.genres : [];
-        setGenres(arr);
-        if (!genre) {
-          const chosen = arr[0] || 'history';
-          setGenre(chosen);
-          localStorage.setItem('chat.genre', chosen);
-        }
-      } catch (e) {
-        console.error(e);
-        setErr('Failed to load genres. Please refresh.');
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // offline hint
-  useEffect(() => {
-    function handleOnline() {
-      setInfo('');
+    if (token && !sessionId && searchQuery.trim()) {
+      handleNewSession()
     }
-    function handleOffline() {
-      setInfo('You appear to be offline. Requests will fail until connection is restored.');
-    }
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    if (!navigator.onLine) handleOffline();
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+  }, [searchQuery, token, sessionId])
 
-  function setGenrePersist(val) {
-    setGenre(val);
-    localStorage.setItem('chat.genre', val);
-  }
-
-  async function ensureSession() {
-    if (sessionId) return sessionId;
+  async function handleNewSession() {
+    if (busySession) return
+    setBusySession(true)
     try {
-      const res = await createSession();
-      setSessionId(res.session_id);
-      return res.session_id;
+      const res = await createSession()
+      setSessionId(res.session_id)
     } catch (e) {
-      throw new Error('Could not create a chat session. Try logging out and back in.');
+      console.error("Failed to create session:", e)
+    } finally {
+      setBusySession(false)
     }
   }
 
-  async function onAsk(e) {
-    e?.preventDefault?.();
-    setErr('');
-    setInfo('');
-    setMeta(null);
-    setLastSources([]);
-    if (!draft.trim()) return;
-    if (!navigator.onLine) {
-      setErr('No internet connection.');
-      return;
-    }
-    setBusy(true);
+  async function handleSearch(e) {
+    e.preventDefault()
+    if (!searchQuery.trim()) return
 
-    const userMsg = { role: 'user', content: draft.trim(), ts: Date.now() };
-    setMessages((m) => [...m, userMsg]);
 
     try {
       const sid = await ensureSession();
@@ -164,177 +55,256 @@ export default function ChatPage() {
         genre,
       });
 
-      const assistantMsg = {
-        role: 'assistant',
-        content: res.answer || '[Empty answer]',
-        ts: Date.now(),
-      };
-      setMessages((m) => [...m, assistantMsg]);
-      setLastSources(res.sources || []);
-      setMeta(res.metadata || null);
-      setDraft('');
-    } catch (e) {
-      let details = e?.message || 'Chat failed';
-      if (e?.response) {
-        try {
-          const data = await e.response.json();
-          details = data?.detail || details;
-        } catch {
-          /* ignore JSON parse errors */
-        }
+    if (!token) {
+      // Navigate to login if not authenticated
+      window.location.href = "/login"
+      return
+    }
+
+    // Add user message to chat
+    const userMessage = {
+      id: Date.now(),
+      role: "user",
+      content: searchQuery.trim(),
+      timestamp: new Date(),
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setIsInChatMode(true)
+    setIsLoading(true)
+
+    const currentQuery = searchQuery
+    setSearchQuery("")
+
+    // Simulate AI response (replace with actual API call)
+    setTimeout(() => {
+      const aiMessage = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: `I understand you're asking about "${currentQuery}". This is where I would provide insights based on your uploaded books and the selected genre: ${selectedGenre}.`,
+        timestamp: new Date(),
       }
-      setErr(details);
-      // keep the user's last question, but also add a system-ish bubble
-      setMessages((m) => [
-        ...m,
-        { role: 'assistant', content: `[Error] ${details}`, ts: Date.now() },
-      ]);
-    } finally {
-      setBusy(false);
-    }
+      setMessages((prev) => [...prev, aiMessage])
+      setIsLoading(false)
+    }, 1500)
   }
 
-  async function onRetryLast() {
-    // find last user message
-    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    if (!lastUser) return;
-    setDraft(lastUser.content);
-    await onAsk();
-  }
+  const categories = [
+    { label: "Summarize", icon: "📄" },
+    { label: "Analyze", icon: "🔍" },
+    { label: "Quiz Me", icon: "❓" },
+    { label: "Explain", icon: "💡" },
+    { label: "Compare", icon: "⚖️" },
+  ]
 
-  async function onNewChat() {
-    setErr('');
-    setInfo('');
-    setMeta(null);
-    setLastSources([]);
-    setMessages([]);
-    setBusy(true);
-    try {
-      const res = await createSession();
-      setSessionId(res.session_id);
-      setInfo('Started a new chat session.');
-    } catch (e) {
-      setErr('Could not start a new chat. Try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function onCopy(text) {
-    navigator.clipboard.writeText(text).catch(() => {});
-  }
-
-  const disabled = busy || !draft.trim();
+  const genres = [
+    "All Genres",
+    "Fiction",
+    "Non-Fiction",
+    "Science",
+    "History",
+    "Biography",
+    "Philosophy",
+    "Technology",
+    "Business",
+    "Self-Help",
+  ]
 
   return (
-    <div className="max-w-3xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Chat</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={onNewChat}
-            disabled={busy}
-            className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50 disabled:opacity-50"
-            title="Start a fresh session (clears short-term memory)"
-          >
-            New chat
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16">
+      {!isInChatMode && (
+        <div className="relative w-full">
+          <div className="absolute top-6 left-0 z-10">
+            <div className="relative">
+              <button
+                onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+              >
+                <span>{selectedGenre}</span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isGenreDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
 
-      {err && <Banner kind="error">{err}</Banner>}
-      {info && !err && <Banner>{info}</Banner>}
-
-      <div className="flex gap-2 items-center">
-        <label className="text-sm text-gray-600">Genre</label>
-        <select
-          className="border rounded px-3 py-2"
-          value={genre}
-          onChange={(e) => setGenrePersist(e.target.value)}
-        >
-          {genres.length ? (
-            genres.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))
-          ) : (
-            <option value="history">history</option>
-          )}
-        </select>
-      </div>
-
-      {/* message list */}
-      <div
-        ref={scrollerRef}
-        className="bg-gray-100/60 border rounded p-3 h-[380px] overflow-y-auto space-y-3"
-      >
-        {messages.length === 0 ? (
-          <div className="text-sm text-gray-600">
-            Ask anything about your ingested books. Use the genre to steer context.{" "}
-            Try: <span className="font-mono">"Give me a one-line fun fact"</span>
+              {isGenreDropdownOpen && (
+                <div className="absolute top-full mt-2 w-48 bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-lg overflow-hidden">
+                  {genres.map((genre) => (
+                    <button
+                      key={genre}
+                      onClick={() => {
+                        setSelectedGenre(genre)
+                        setIsGenreDropdownOpen(false)
+                      }}
+                      className="w-full text-left px-4 py-2 text-gray-300 hover:text-white hover:bg-[#2a2a2a] transition-colors"
+                    >
+                      {genre}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          messages.map((m, i) => (
-            <Message
-              key={i}
-              role={m.role}
-              content={m.content}
-              onCopy={() => onCopy(m.content)}
-            />
-          ))
-        )}
-
-        {busy && (
-          <div className="text-xs text-gray-600 animate-pulse">Thinking…</div>
-        )}
-      </div>
-
-      {/* ask form */}
-      <form onSubmit={onAsk} className="space-y-2">
-        <div className="flex items-end gap-2">
-          <textarea
-            className="flex-1 border rounded px-3 py-2 min-h-[60px] max-h-[160px]"
-            placeholder="Ask something… (Shift+Enter for newline)"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                onAsk();
-              }
-            }}
-          />
-          <button
-            disabled={disabled}
-            className="px-4 py-2 rounded bg-black text-white disabled:opacity-50"
-          >
-            {busy ? 'Asking…' : 'Ask'}
-          </button>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onRetryLast}
-            disabled={busy || messages.filter((m) => m.role === 'user').length === 0}
-            className="text-sm px-3 py-1.5 rounded border hover:bg-gray-50 disabled:opacity-50"
-          >
-            Retry last
-          </button>
-          <div className="text-xs text-gray-500 self-center">
-            Press <kbd className="px-1 border rounded">Enter</kbd> to send •{' '}
-            <kbd className="px-1 border rounded">Shift</kbd>+<kbd className="px-1 border rounded">Enter</kbd> for newline
-          </div>
-        </div>
-      </form>
-
-      {/* sources + metadata */}
-      <Sources items={lastSources} />
-      {meta && (
-        <div className="text-xs text-gray-600">
-          Retrieved chunks: <span className="font-mono">{meta.retrieved_chunks}</span>
         </div>
       )}
+
+      {isInChatMode && (
+        <div className="flex-1 overflow-y-auto py-6">
+          <div className="max-w-3xl mx-auto space-y-6">
+            {messages.map((message) => (
+              <div key={message.id} className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium">
+                  {message.role === "user" ? "U" : "AI"}
+                </div>
+                <div className="flex-1">
+                  <div className="text-gray-300 leading-relaxed">{message.content}</div>
+                </div>
+              </div>
+            ))}
+
+            {isLoading && (
+              <div className="flex gap-4">
+                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium">
+                  AI
+                </div>
+                <div className="flex-1">
+                  <div className="text-gray-400">
+                    <div className="flex items-center gap-1">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.1s" }}
+                      ></div>
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.2s" }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`flex flex-col items-center transition-all duration-500 ${isInChatMode ? "pb-6" : "flex-1 justify-center"}`}
+      >
+        {!isInChatMode && (
+          <div className="text-center mb-12 pt-16">
+            <h1 className="text-5xl md:text-6xl font-light tracking-wide mb-4">insightlm</h1>
+            <p className="text-gray-400 text-lg">Chat with your books, discover insights</p>
+          </div>
+        )}
+
+        <div className="w-full max-w-2xl mb-8">
+          <form onSubmit={handleSearch} className="relative">
+            <div className="relative flex items-center">
+              <div className="absolute left-4 text-gray-400">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={isInChatMode ? "Ask a follow-up question..." : "Ask anything about your books..."}
+                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl py-4 pl-12 pr-16 text-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors"
+              />
+              <div className="absolute right-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="text-gray-400 hover:text-gray-300 transition-colors"
+                  title="Attach file"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                  </svg>
+                </button>
+                <button
+                  type="submit"
+                  disabled={!searchQuery.trim() || isLoading}
+                  className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M22 2L11 13" />
+                    <path d="M22 2L15 22L11 13L2 9L22 2Z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        {!isInChatMode && (
+          <>
+            <div className="flex flex-wrap justify-center gap-3 mb-12">
+              {categories.map((category) => (
+                <button
+                  key={category.label}
+                  onClick={() => {
+                    setSearchQuery(`${category.label} my uploaded content`)
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-full text-gray-300 hover:text-white hover:border-gray-500 transition-colors text-sm"
+                >
+                  <span>{category.icon}</span>
+                  {category.label}
+                </button>
+              ))}
+            </div>
+
+            {token && (
+              <div className="flex flex-wrap justify-center gap-4 mb-8">
+                <Link
+                  to="/ingest"
+                  className="flex items-center gap-2 px-6 py-3 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14,2 14,8 20,8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10,9 9,9 8,9" />
+                  </svg>
+                  Upload Books
+                </Link>
+                <Link
+                  to="/mcq"
+                  className="flex items-center gap-2 px-6 py-3 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z" />
+                    <path d="M21 11h-4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z" />
+                    <path d="M7 2v20" />
+                    <path d="M17 2v20" />
+                  </svg>
+                  Take Quiz
+                </Link>
+              </div>
+            )}
+
+            {!token && (
+              <div className="text-center">
+                <p className="text-gray-400 mb-4">Sign in to unlock the full experience</p>
+                <div className="flex gap-3 justify-center">
+                  <Link
+                    to="/login"
+                    className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    to="/signup"
+                    className="px-6 py-2 border border-gray-600 hover:border-gray-500 text-gray-300 hover:text-white rounded-lg transition-colors"
+                  >
+                    Sign Up
+                  </Link>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
-  );
+  )
 }
