@@ -44,6 +44,17 @@ export default function Home() {
     e.preventDefault()
     if (!searchQuery.trim()) return
 
+
+    try {
+      const sid = await ensureSession();
+      const userId = useAuthStore.getState().user?.id;
+      const res = await askChat({
+          user_id: userId,
+          session_id: sid,
+        question: userMsg.content,
+        genre,
+      });
+
     if (!token) {
       // Navigate to login if not authenticated
       window.location.href = "/login"

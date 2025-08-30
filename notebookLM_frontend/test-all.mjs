@@ -117,7 +117,8 @@ console.log("Bearer " + token); // full token, or slice(0, 40) + "..." if you wa
   try {
     const chat = await req('POST', '/chatbot/ask', {
       session_id: session.session_id,
-      question: 'Give me a one-line fun fact.',
+
+        question: 'Give me a one-line fun fact.',
       genre: chosenGenre,
     });
     log('Chatbot/ask', chat);
