@@ -10,6 +10,7 @@ async function getAccessToken() {
 
 export const api = ky.create({
   prefixUrl: import.meta.env.VITE_API_BASE_URL, // e.g. http://127.0.0.1:8000
+  timeout: 15000,
   hooks: {
     beforeRequest: [
       async (request) => {
