@@ -20,8 +20,8 @@ export async function createSession() {
 }
 
 
-export async function askChat({ session_id, question, genre }) {
-  return api.post('chatbot/ask', { json: { session_id, question, genre } }).json();
+export async function askChat({ user_id, session_id, question, genre }) {
+  return api.post('chatbot/ask', { json: { user_id, session_id, question, genre } }).json();
 }
 
 export async function ingestUpload({ file, title, author, genre }) {

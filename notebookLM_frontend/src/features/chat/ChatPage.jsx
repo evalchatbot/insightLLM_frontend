@@ -156,8 +156,10 @@ export default function ChatPage() {
 
     try {
       const sid = await ensureSession();
+      const userId = useAuthStore.getState().user?.id;
       const res = await askChat({
-        session_id: sid,
+          user_id: userId,
+          session_id: sid,
         question: userMsg.content,
         genre,
       });
