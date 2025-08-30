@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
-import { createSession } from "../../api/endpoints"
+import { createSession, askChat, getGenres } from "../../api/endpoints"
 
 export default function Home() {
   const token = useAuthStore((s) => s.accessToken)
@@ -16,6 +16,7 @@ export default function Home() {
   const [busySession, setBusySession] = useState(false)
   const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false)
   const [selectedGenre, setSelectedGenre] = useState("All Genres")
+  const [genres, setGenres] = useState(["All Genres"])
 
   const [messages, setMessages] = useState([])
   const [isInChatMode, setIsInChatMode] = useState(false)
@@ -26,6 +27,18 @@ export default function Home() {
       handleNewSession()
     }
   }, [searchQuery, token, sessionId])
+
+  useEffect(() => {
+    async function fetchGenres() {
+      try {
+        const fetchedGenres = await getGenres()
+        setGenres(["All Genres", ...fetchedGenres.genres])
+      } catch (error) {
+        console.error("Failed to fetch genres:", error)
+      }
+    }
+    fetchGenres()
+  }, [])
 
   async function handleNewSession() {
     if (busySession) return
@@ -40,45 +53,73 @@ export default function Home() {
     }
   }
 
+  async function ensureSession() {
+    if (sessionId) return sessionId
+    try {
+      const res = await createSession()
+      setSessionId(res.session_id)
+      return res.session_id
+    } catch (e) {
+      throw new Error("Could not create a chat session. Try logging out and back in.")
+    }
+  }
+
   async function handleSearch(e) {
     e.preventDefault()
     if (!searchQuery.trim()) return
 
+    try {
+      const sid = await ensureSession()
+      const userId = useAuthStore.getState().user?.id
 
-      try {
-        const sid = await ensureSession();
-        const userId = useAuthStore.getState().user?.id;
-        // Simulate user message
-        if (!token) {
-          window.location.href = "/login";
-          return;
-        }
-        const userMessage = {
-          id: Date.now(),
-          role: "user",
-          content: searchQuery.trim(),
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, userMessage]);
-        setIsInChatMode(true);
-        setIsLoading(true);
-        const currentQuery = searchQuery;
-        setSearchQuery("");
-        // Simulate AI response (replace with actual API call)
-        setTimeout(() => {
-          const aiMessage = {
-            id: Date.now() + 1,
-            role: "assistant",
-            content: `I understand you're asking about "${currentQuery}". This is where I would provide insights based on your uploaded books and the selected genre: ${selectedGenre}.`,
-            timestamp: new Date(),
-          };
-          setMessages((prev) => [...prev, aiMessage]);
-          setIsLoading(false);
-        }, 1500);
-      } catch (err) {
-        console.error(err);
+      if (!token) {
+        window.location.href = "/login"
+        return
       }
+
+      const userMessage = {
+        id: Date.now(),
+        role: "user",
+        content: searchQuery.trim(),
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, userMessage])
+      setIsInChatMode(true)
+      setIsLoading(true)
+
+      const currentQuery = searchQuery
+      setSearchQuery("")
+
+      // ✅ Call backend API
+      const res = await askChat({
+        user_id: userId,
+        session_id: sid,
+        question: currentQuery,
+        genre: selectedGenre,
+      })
+
+      const aiMessage = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: res.answer || "[Empty answer]",
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, aiMessage])
+      setIsLoading(false)
+    } catch (err) {
+      console.error(err)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          role: "assistant",
+          content: "[Error] Chat failed",
+          timestamp: new Date(),
+        },
+      ])
+      setIsLoading(false)
     }
+  }
 
   const categories = [
     { label: "Summarize", icon: "📄" },
@@ -88,18 +129,7 @@ export default function Home() {
     { label: "Compare", icon: "⚖️" },
   ]
 
-  const genres = [
-    "All Genres",
-    "Fiction",
-    "Non-Fiction",
-    "Science",
-    "History",
-    "Biography",
-    "Philosophy",
-    "Technology",
-    "Business",
-    "Self-Help",
-  ]
+  
 
   return (
     <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16">
@@ -112,7 +142,11 @@ export default function Home() {
                 className="flex items-center gap-2 px-4 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
               >
                 <span>{selectedGenre}</span>
-                <ChevronDown className={`w-4 h-4 transition-transform ${isGenreDropdownOpen ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${
+                    isGenreDropdownOpen ? "rotate-180" : ""
+                  }`}
+                />
               </button>
 
               {isGenreDropdownOpen && (
@@ -177,7 +211,9 @@ export default function Home() {
       )}
 
       <div
-        className={`flex flex-col items-center transition-all duration-500 ${isInChatMode ? "pb-6" : "flex-1 justify-center"}`}
+        className={`flex flex-col items-center transition-all duration-500 ${
+          isInChatMode ? "pb-6" : "flex-1 justify-center"
+        }`}
       >
         {!isInChatMode && (
           <div className="text-center mb-12 pt-16">
@@ -190,7 +226,14 @@ export default function Home() {
           <form onSubmit={handleSearch} className="relative">
             <div className="relative flex items-center">
               <div className="absolute left-4 text-gray-400">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
                   <circle cx="11" cy="11" r="8" />
                   <path d="m21 21-4.35-4.35" />
                 </svg>
@@ -199,7 +242,11 @@ export default function Home() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={isInChatMode ? "Ask a follow-up question..." : "Ask anything about your books..."}
+                placeholder={
+                  isInChatMode
+                    ? "Ask a follow-up question..."
+                    : "Ask anything about your books..."
+                }
                 className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl py-4 pl-12 pr-16 text-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors"
               />
               <div className="absolute right-4 flex items-center gap-2">
@@ -208,19 +255,14 @@ export default function Home() {
                   className="text-gray-400 hover:text-gray-300 transition-colors"
                   title="Attach file"
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                  </svg>
+                  📎
                 </button>
                 <button
                   type="submit"
                   disabled={!searchQuery.trim() || isLoading}
                   className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 transition-colors"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M22 2L11 13" />
-                    <path d="M22 2L15 22L11 13L2 9L22 2Z" />
-                  </svg>
+                  ➤
                 </button>
               </div>
             </div>
@@ -250,26 +292,13 @@ export default function Home() {
                   to="/ingest"
                   className="flex items-center gap-2 px-6 py-3 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14,2 14,8 20,8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                    <polyline points="10,9 9,9 8,9" />
-                  </svg>
-                  Upload Books
+                  📚 Upload Books
                 </Link>
                 <Link
                   to="/mcq"
                   className="flex items-center gap-2 px-6 py-3 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z" />
-                    <path d="M21 11h-4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2z" />
-                    <path d="M7 2v20" />
-                    <path d="M17 2v20" />
-                  </svg>
-                  Take Quiz
+                  📝 Take Quiz
                 </Link>
               </div>
             )}
