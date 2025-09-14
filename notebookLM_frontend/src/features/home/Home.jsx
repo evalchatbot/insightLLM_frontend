@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
-import { createSession } from "../../api/endpoints"
+import { createSession, getGenres } from "../../api/endpoints"
 import { useChatStore } from "../../store/chat"
 
 export default function Home() {
@@ -47,13 +47,21 @@ export default function Home() {
     }
 
     try {
-      localStorage.setItem("chat.seedPrompt", q)
-    } catch {}
+      // reset chat and set the seed in the shared store so ChatPage consumes it immediately
+      const chatStore = require("../../store/chat").useChatStore.getState()
+      if (chatStore?.startNewChat) chatStore.startNewChat()
+      if (chatStore?.enterChat) chatStore.enterChat(q)
+    } catch (e) {
+      // fallback to localStorage if store call fails
+      try {
+        localStorage.setItem("chat.seedPrompt", q)
+      } catch {}
+    }
     setSearchQuery("")
     navigate("/chat")
   }
 
-  const genres = [
+  const [genres, setGenres] = useState([
     "All Genres",
     "Fiction",
     "Non-Fiction",
@@ -64,10 +72,22 @@ export default function Home() {
     "Technology",
     "Business",
     "Self-Help",
-  ]
+  ])
+
+  useEffect(() => {
+    async function fetch() {
+      try {
+        const fetched = await getGenres()
+        if (fetched?.genres) setGenres(["All Genres", ...(fetched.genres || [])])
+      } catch (e) {
+        // ignore and keep static list
+      }
+    }
+    fetch()
+  }, [])
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16">
+    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16 md:ml-64 md:sidebar-collapsed:ml-16 ml-0 sm:ml-16">
       {/* Top-left genre picker */}
       <div className="relative w-full">
         <div className="absolute top-6 left-0 z-10">

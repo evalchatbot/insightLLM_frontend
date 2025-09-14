@@ -58,8 +58,8 @@ export default function ChatPage() {
 
   // 🔰 Consume the seed prompt handed from Home exactly once
   useEffect(() => {
-    const runSeed = async () => {
-      if (!seedPrompt || !token) return
+    const runSeed = async (prompt) => {
+      if (!prompt || !token) return
       const sid = await ensureSession()
       const userId = useAuthStore.getState().user?.id
 
@@ -67,18 +67,17 @@ export default function ChatPage() {
       const userMessage = {
         id: Date.now(),
         role: "user",
-        content: seedPrompt,
+        content: prompt,
         timestamp: new Date(),
       }
       appendMessage(userMessage)
       setIsLoading(true)
-      clearSeedPrompt()
 
       try {
         const res = await askChat({
           user_id: userId,
           session_id: sid,
-          question: seedPrompt,
+          question: prompt,
           genre: selectedGenre,
         })
         appendMessage({
@@ -100,7 +99,26 @@ export default function ChatPage() {
         if (inputRef.current) inputRef.current.focus()
       }
     }
-    runSeed()
+
+    // Priority: prefer in-memory store seed, otherwise look for localStorage seed set by Home
+    const lsSeed = (() => {
+      try {
+        return localStorage.getItem("chat.seedPrompt")
+      } catch (e) {
+        return null
+      }
+    })()
+
+    if (seedPrompt) {
+      runSeed(seedPrompt)
+      clearSeedPrompt()
+    } else if (lsSeed) {
+      // consume localStorage seed once
+      runSeed(lsSeed)
+      try {
+        localStorage.removeItem("chat.seedPrompt")
+      } catch (e) { }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedPrompt, token, selectedGenre])
 
@@ -162,10 +180,39 @@ export default function ChatPage() {
   ]
 
   return (
-    <div className="min-h-[calc(100vh-0px)] bg-[#0f0f0f] text-white flex flex-col px-0 transition-all duration-300 ease-in-out">
-      {/* Chat transcript */}
-      <div className="flex-1 overflow-y-auto py-6">
-        <div className="max-w-3xl mx-auto space-y-6">
+  <div className="min-h-[calc(100vh-0px)] bg-[#0f0f0f] text-white flex flex-col px-0 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16 md:ml-64 md:sidebar-collapsed:ml-16 ml-0 sm:ml-16">
+      {/* Top-left genre picker (fixed so it doesn't scroll, aligned with sidebar) */}
+      <div className="fixed top-6 left-0 z-30 ml-64 sidebar-collapsed:ml-16 md:ml-64 md:sidebar-collapsed:ml-16 ml-0 sm:ml-16">
+        <div className="relative">
+          <button
+            onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+          >
+            <span>{selectedGenre}</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${isGenreDropdownOpen ? "rotate-180" : ""}`} />
+          </button>
+          {isGenreDropdownOpen && (
+            <div className="absolute top-full mt-2 w-48 bg-[#1a1a1a] rounded-lg shadow-lg overflow-hidden">
+              {genres.map((genre) => (
+                <button
+                  key={genre}
+                  onClick={() => {
+                    setSelectedGenre(genre)
+                    setIsGenreDropdownOpen(false)
+                  }}
+                  className="w-full text-left px-4 py-2 text-gray-300 hover:text-white hover:bg-[#2a2a2a] transition-colors"
+                >
+                  {genre}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+  {/* Chat transcript (add top padding so top-left picker doesn't overlap messages) */}
+  <div className="flex-1 overflow-y-auto pt-20 pb-6">
+        <div className="max-w-5xl mx-auto space-y-6">
           {messages.map((message) => (
             <div key={message.id} className="flex gap-4">
               <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium">
@@ -202,69 +249,45 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Composer */}
-      <div className="w-full max-w-3xl mx-auto mb-6">
-        {/* Genre picker row */}
-        <div className="flex items-center gap-2 mb-3">
-          <div className="relative">
-            <button
-              onClick={() => setIsGenreDropdownOpen(!isGenreDropdownOpen)}
-              className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border border-gray-700 rounded-lg text-gray-300 hover:text-white hover:border-gray-500 transition-colors text-sm"
-            >
-              <span>{selectedGenre}</span>
-              <ChevronDown className={`w-4 h-4 transition-transform ${isGenreDropdownOpen ? "rotate-180" : ""}`} />
-            </button>
-            {isGenreDropdownOpen && (
-              <div className="absolute z-10 top-full mt-2 w-48 bg-[#1a1a1a] border border-gray-700 rounded-lg shadow-lg overflow-hidden">
-                {genres.map((g) => (
-                  <button
-                    key={g}
-                    onClick={() => {
-                      setSelectedGenre(g)
-                      setIsGenreDropdownOpen(false)
-                    }}
-                    className="w-full text-left px-4 py-2 text-gray-300 hover:text-white hover:bg-[#2a2a2a] transition-colors"
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Composer - fixed at bottom */}
+      <div className="fixed left-0 right-0 bottom-0 pb-4 bg-transparent z-20 ml-64 sidebar-collapsed:ml-16 md:ml-64 md:sidebar-collapsed:ml-16 ml-0 sm:ml-16">
+        <div className="max-w-5xl mx-auto w-full px-4">
+          {/* composer no longer contains the genre picker (moved to top-left) */}
 
-        {/* Input */}
-        <form onSubmit={handleSearch} className="relative">
-          <div className="relative flex items-center">
-            <div className="absolute left-4 text-gray-400">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
+          {/* Input */}
+          <form onSubmit={handleSearch} className="relative">
+            <div className="relative flex items-center">
+              <div className="absolute left-4 text-gray-400">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+              </div>
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Ask a follow-up question..."
+                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl py-4 pl-12 pr-16 text-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors" />
+              <div className="absolute right-4 flex items-center gap-2">
+                <button type="button" className="text-gray-400 hover:text-gray-300 transition-colors" title="Attach file">
+                  📎
+                </button>
+                <button
+                  type="submit"
+                  disabled={!searchQuery.trim() || isLoading}
+                  className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 transition-colors"
+                >
+                  ➤
+                </button>
+              </div>
             </div>
-            <input
-              ref={inputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Ask a follow-up question..."
-              className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl py-4 pl-12 pr-16 text-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors"
-            />
-            <div className="absolute right-4 flex items-center gap-2">
-              <button type="button" className="text-gray-400 hover:text-gray-300 transition-colors" title="Attach file">
-                📎
-              </button>
-              <button
-                type="submit"
-                disabled={!searchQuery.trim() || isLoading}
-                className="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 transition-colors"
-              >
-                ➤
-              </button>
-            </div>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
+      {/* Spacer to prevent transcript overlap with fixed input */}
+      <div className="h-[120px]" />
     </div>
   )
 }
