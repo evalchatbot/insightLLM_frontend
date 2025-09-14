@@ -2,7 +2,8 @@
 
 import { Link, NavLink, useNavigate } from "react-router-dom"
 import { useAuthStore } from "../store/auth"
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
+import { listConversations, createConversationEmpty, updateConversation, deleteConversation } from "../api/endpoints"
 import { PanelRight } from "lucide-react"
 
 
@@ -17,6 +18,9 @@ export default function Sidebar() {
   const logout = useAuthStore((s) => s.logout)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [windowCollapsed, setWindowCollapsed] = useState(false)
+  const [recentChats, setRecentChats] = useState([])
+  const setConversationId = useAuthStore((s) => s.setConversationId)
+  const authConversationId = useAuthStore((s) => s.conversationId)
   const COLLAPSE_BREAKPOINT = 768
 
   // effectiveCollapsed respects manual toggle OR automatic window collapse
@@ -41,12 +45,54 @@ export default function Sidebar() {
     navigate("/")
   }
 
-  const recentChats = [
-    { id: 1, title: "Book Analysis: 1984", icon: "📄" },
-    { id: 2, title: "Character Study: Gatsby", icon: "📄" },
-    { id: 3, title: "Theme Discussion: Pride...", icon: "📄" },
-    { id: 4, title: "Summary: To Kill a Mock...", icon: "📄" },
-  ]
+  useEffect(() => {
+    let mounted = true
+    async function fetchConvos() {
+      try {
+        const { data: { user } } = await (await import('../lib/supabase')).supabase.auth.getUser()
+        const user_id = user?.id
+        const res = await listConversations({ user_id, limit: 50 })
+        if (mounted && res && res.conversations) setRecentChats(res.conversations)
+      } catch (e) {
+        // fail silently and leave recentChats empty
+      }
+    }
+    fetchConvos()
+    return () => { mounted = false }
+  }, [])
+
+  // Handlers
+  const openConversation = (id) => {
+    try {
+      setConversationId(id)
+    } catch (e) {}
+    navigate('/chat')
+  }
+
+  const renameConversation = async (id, newTitle) => {
+    const prev = recentChats
+    try {
+      // optimistic update
+      setRecentChats((r) => r.map(c => c.id === id ? { ...c, title: newTitle } : c))
+      await updateConversation(id, { title: newTitle })
+    } catch (e) {
+      // revert
+      setRecentChats(prev)
+    }
+  }
+
+  const deleteConversationHandler = async (id) => {
+    const prev = recentChats
+    try {
+      setRecentChats((r) => r.filter(c => c.id !== id))
+      await deleteConversation(id)
+      // if deleted conversation was selected, clear stored id
+      const stored = getStoredConversationId()
+      if (stored === id) setStoredConversationId(null)
+    } catch (e) {
+      setRecentChats(prev)
+    }
+  }
 
   return (
     <div
@@ -97,7 +143,7 @@ export default function Sidebar() {
           <div className="p-2 space-y-1">
             {/* New chat: reset chat state + session, then navigate to /chat */}
             <button
-              onClick={() => {
+              onClick={async () => {
                 try {
                   localStorage.removeItem("chat.seedPrompt")
                 } catch (e) {}
@@ -111,6 +157,18 @@ export default function Sidebar() {
                   const setSessionId = require("../store/auth").useAuthStore.getState().setSessionId
                   if (setSessionId) setSessionId(null)
                 } catch (e) {}
+
+                          // create conversation on server and store id in auth store
+                          try {
+                            const convo = await createConversationEmpty()
+                            if (convo && convo.id) {
+                              setConversationId(convo.id)
+                              console.debug('[Sidebar] new-chat OK', convo.id)
+                            }
+                          } catch (e) {
+                            // ignore failures here; fallback to local-only chat
+                          }
+
                 navigate("/chat")
               }}
               className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -167,12 +225,40 @@ export default function Sidebar() {
             <div className="px-2 py-4 border-t border-gray-700">
               <div className="space-y-1">
                 {recentChats.map((chat) => (
-                  <button
-                    key={chat.id}
-                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800 transition-colors"
-                  >
-                    <span className="truncate text-left">{chat.title}</span>
-                  </button>
+                  <div key={chat.id} className="flex items-center justify-between w-full px-1">
+                    <button
+                      onClick={() => openConversation(chat.id)}
+                      className="flex items-center gap-3 w-full py-2 rounded-lg text-sm text-gray-300 hover:bg-gray-800 transition-colors text-left"
+                    >
+                      <span className="truncate">{chat.title}</span>
+                    </button>
+                    <div className="flex items-center gap-2 ml-2">
+                      {/* simple edit: click title to rename via prompt (keeps UI minimal) */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          const newTitle = prompt('Rename conversation', chat.title)
+                          if (newTitle && newTitle.trim() && newTitle.trim() !== chat.title) {
+                            await renameConversation(chat.id, newTitle.trim())
+                          }
+                        }}
+                        className="text-gray-400 hover:text-white p-1"
+                        title="Rename"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (confirm('Delete this conversation?')) await deleteConversationHandler(chat.id)
+                        }}
+                        className="text-gray-400 hover:text-white p-1"
+                        title="Delete"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>

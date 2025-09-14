@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
 import { useChatStore } from "../../store/chat"
-import { createSession, askChat, getGenres } from "../../api/endpoints"
+import { createSession, askChat, getGenres, addConversationMessage, getConversation, getConversationMessages, createConversationAutoTitle } from "../../api/endpoints"
 
 export default function ChatPage() {
   const token = useAuthStore((s) => s.accessToken)
@@ -30,6 +30,29 @@ export default function ChatPage() {
   const [busySession, setBusySession] = useState(false)
 
   const inputRef = useRef(null)
+  const transcriptRef = useRef(null)
+  const prevMessagesLengthRef = useRef(0)
+  const [conversationId, setConversationId] = useState(useAuthStore.getState().conversationId || null)
+  const authConversationId = useAuthStore((s) => s.conversationId)
+  const setAuthConversationId = useAuthStore((s) => s.setConversationId)
+  const [messagesPage, setMessagesPage] = useState({ offset: 0, limit: 20 })
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [hasMoreOlder, setHasMoreOlder] = useState(true)
+
+  useEffect(() => {
+    // If there were already messages and now more arrived, scroll to bottom
+    const prevLen = prevMessagesLengthRef.current
+    const curLen = messages?.length || 0
+    if (transcriptRef.current && curLen > prevLen && prevLen > 0) {
+      // scroll to bottom
+      try {
+        transcriptRef.current.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' })
+      } catch (e) {
+        transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight
+      }
+    }
+    prevMessagesLengthRef.current = curLen
+  }, [messages])
 
   useEffect(() => {
     async function fetchGenres() {
@@ -42,6 +65,101 @@ export default function ChatPage() {
     }
     fetchGenres()
   }, [])
+
+  // Hydrate conversation if conversationId exists
+  useEffect(() => {
+    let mounted = true
+    async function hydratePaged() {
+      const stored = authConversationId || useAuthStore.getState().conversationId
+      if (!stored) return
+      setConversationId(stored)
+      try {
+        // load initial page (most recent messages)
+        const res = await getConversationMessages(stored, { limit: messagesPage.limit, offset: 0 })
+        const serverMessages = res || []
+        if (mounted) {
+          try {
+            const chatStore = require("../../store/chat").useChatStore.getState()
+            if (chatStore?.startNewChat) chatStore.startNewChat()
+            // map and append
+            const mapped = serverMessages.map((m) => ({
+              id: m.id || Date.now() + Math.random(),
+              role: m.sender === 'assistant' ? 'assistant' : 'user',
+              content: m.message,
+              timestamp: m.created_at || new Date(),
+            }))
+            mapped.forEach((mm) => chatStore.appendMessage && chatStore.appendMessage(mm))
+            setMessagesPage((p) => ({ ...p, offset: mapped.length }))
+            setHasMoreOlder(mapped.length === messagesPage.limit)
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        // if not found, clear stored id
+        try {
+          setStoredConversationId(null)
+          setConversationId(null)
+        } catch (er) {}
+      }
+    }
+    hydratePaged()
+    return () => { mounted = false }
+  }, [])
+
+  // infinite scroll: load older when scrolled to top
+  useEffect(() => {
+    if (!transcriptRef.current) return
+    let ticking = false
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      requestAnimationFrame(async () => {
+        try {
+            if (transcriptRef.current.scrollTop <= 0 && hasMoreOlder && !loadingOlder && (conversationId || authConversationId)) {
+            setLoadingOlder(true)
+            try {
+              const convoId = conversationId || authConversationId || useAuthStore.getState().conversationId
+              const res = await getConversationMessages(convoId, { limit: messagesPage.limit, offset: messagesPage.offset })
+              const older = res || []
+              if (older.length) {
+                const chatStore = require("../../store/chat").useChatStore.getState()
+                // map and prepend older messages if not duplicates
+                const mapped = older.map((m) => ({
+                  id: m.id || Date.now() + Math.random(),
+                  role: m.sender === 'assistant' ? 'assistant' : 'user',
+                  content: m.message,
+                  timestamp: m.created_at || new Date(),
+                }))
+                // prepend by resetting store then re-appending: keep existing then add older at front
+                const current = chatStore.messages || []
+                const dedup = mapped.filter(mu => !current.find(c => c.id === mu.id))
+                if (dedup.length) {
+                  // reset and reapply: older first, then existing
+                  chatStore.startNewChat && chatStore.startNewChat()
+                  dedup.forEach(m => chatStore.appendMessage && chatStore.appendMessage(m))
+                  current.forEach(m => chatStore.appendMessage && chatStore.appendMessage(m))
+                }
+                setMessagesPage((p) => ({ ...p, offset: p.offset + older.length }))
+                setHasMoreOlder(older.length === messagesPage.limit)
+              } else {
+                setHasMoreOlder(false)
+              }
+            } catch (e) {
+              // ignore
+            } finally {
+              setLoadingOlder(false)
+            }
+          }
+        } finally {
+          ticking = false
+        }
+      })
+    }
+    const node = transcriptRef.current
+    node.addEventListener('scroll', onScroll)
+    return () => node.removeEventListener('scroll', onScroll)
+  }, [transcriptRef.current, hasMoreOlder, loadingOlder, conversationId, messagesPage.offset])
 
   async function ensureSession() {
     if (sessionId) return sessionId
@@ -71,6 +189,31 @@ export default function ChatPage() {
         timestamp: new Date(),
       }
       appendMessage(userMessage)
+      // persist user message to conversation if available (non-blocking)
+      (async () => {
+        try {
+          const stored = conversationId || authConversationId || useAuthStore.getState().conversationId
+          if (stored) {
+            await addConversationMessage(stored, { sender: 'user', message: prompt })
+          }
+        } catch (e) {
+          console.warn('[ChatPage] failed to persist user message', e)
+          // mark last message as not saved (non-blocking)
+          try {
+            const chatStore = require("../../store/chat").useChatStore.getState()
+            const msgs = chatStore.messages || []
+            if (msgs.length) {
+              const last = msgs[msgs.length - 1]
+              last.notSaved = true
+              // trigger store update by reapplying messages
+              const keep = msgs.slice(0, msgs.length - 1)
+              chatStore.startNewChat && chatStore.startNewChat()
+              keep.forEach(m => chatStore.appendMessage && chatStore.appendMessage(m))
+              chatStore.appendMessage && chatStore.appendMessage(last)
+            }
+          } catch (er) {}
+        }
+      })()
       setIsLoading(true)
 
       try {
@@ -86,6 +229,29 @@ export default function ChatPage() {
           content: res.answer || "[Empty answer]",
           timestamp: new Date(),
         })
+        // persist assistant reply (non-blocking)
+        (async () => {
+          try {
+            const stored = conversationId || authConversationId || useAuthStore.getState().conversationId
+            if (stored) {
+              await addConversationMessage(stored, { sender: 'assistant', message: res.answer || '', citations: res.citations || [], metadata: res.metadata || {} })
+            }
+          } catch (e) {
+            console.warn('[ChatPage] failed to persist assistant reply', e)
+            try {
+              const chatStore = require("../../store/chat").useChatStore.getState()
+              const msgs = chatStore.messages || []
+              if (msgs.length) {
+                const last = msgs[msgs.length - 1]
+                last.notSaved = true
+                const keep = msgs.slice(0, msgs.length - 1)
+                chatStore.startNewChat && chatStore.startNewChat()
+                keep.forEach(m => chatStore.appendMessage && chatStore.appendMessage(m))
+                chatStore.appendMessage && chatStore.appendMessage(last)
+              }
+            } catch (er) {}
+          }
+        })()
       } catch (e) {
         appendMessage({
           id: Date.now() + 1,
@@ -142,6 +308,30 @@ export default function ChatPage() {
       content: q,
       timestamp: new Date(),
     })
+    // persist user message to conversation if available (non-blocking)
+    ;(async () => {
+      try {
+        const stored = conversationId || authConversationId || useAuthStore.getState().conversationId
+        if (stored) {
+          await addConversationMessage(stored, { sender: 'user', message: q })
+        }
+      } catch (e) {
+        console.warn('[ChatPage] failed to persist composer user message', e)
+        // mark last message as not saved (non-blocking) — mirror seed-flow behavior
+        try {
+          const chatStore = require("../../store/chat").useChatStore.getState()
+          const msgs = chatStore.messages || []
+          if (msgs.length) {
+            const last = msgs[msgs.length - 1]
+            last.notSaved = true
+            const keep = msgs.slice(0, msgs.length - 1)
+            chatStore.startNewChat && chatStore.startNewChat()
+            keep.forEach(m => chatStore.appendMessage && chatStore.appendMessage(m))
+            chatStore.appendMessage && chatStore.appendMessage(last)
+          }
+        } catch (er) {}
+      }
+    })()
     setSearchQuery("")
     setIsLoading(true)
 
@@ -158,6 +348,43 @@ export default function ChatPage() {
         content: res.answer || "[Empty answer]",
         timestamp: new Date(),
       })
+      // persist assistant reply (non-blocking)
+      ;(async () => {
+        try {
+          const stored = conversationId || authConversationId || useAuthStore.getState().conversationId
+          if (stored) {
+            await addConversationMessage(stored, { sender: 'assistant', message: res.answer || '', citations: res.citations || [], metadata: res.metadata || {} })
+          }
+        } catch (e) {
+          console.warn('[ChatPage] failed to persist composer assistant reply', e)
+          try {
+            const chatStore = require("../../store/chat").useChatStore.getState()
+            const msgs = chatStore.messages || []
+            if (msgs.length) {
+              const last = msgs[msgs.length - 1]
+              last.notSaved = true
+              const keep = msgs.slice(0, msgs.length - 1)
+              chatStore.startNewChat && chatStore.startNewChat()
+              keep.forEach(m => chatStore.appendMessage && chatStore.appendMessage(m))
+              chatStore.appendMessage && chatStore.appendMessage(last)
+            }
+          } catch (er) {}
+        }
+      })()
+
+      // Optional: auto-title conversation after first Q&A (fire-and-forget, guard to avoid duplicates)
+      try {
+        const stored = conversationId || authConversationId || useAuthStore.getState().conversationId
+        const msgs = useChatStore.getState().messages || []
+        // If this is the first assistant reply (i.e., only one user+assistant exchange), call auto-title
+        if (stored && msgs.filter(m => m.role === 'assistant').length === 1) {
+          try {
+            const uid = useAuthStore.getState().user?.id
+            createConversationAutoTitle({ user_id: uid, question: q, answer: res.answer || '', genre: selectedGenre })
+              .catch(() => {})
+          } catch (_) {}
+        }
+      } catch (_) {}
     } catch (e) {
       appendMessage({
         id: Date.now() + 1,
@@ -211,8 +438,8 @@ export default function ChatPage() {
       </div>
 
   {/* Chat transcript (add top padding so top-left picker doesn't overlap messages) */}
-  <div className="flex-1 overflow-y-auto pt-20 pb-6">
-        <div className="max-w-5xl mx-auto space-y-6">
+  <div ref={transcriptRef} className="flex-1 overflow-y-auto pt-20 pb-6">
+    <div className="max-w-5xl mx-auto space-y-6">
           {messages.map((message) => (
             <div key={message.id} className="flex gap-4">
               <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium">
@@ -268,10 +495,13 @@ export default function ChatPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Ask a follow-up question..."
-                className="w-full bg-[#1a1a1a] border border-gray-700 rounded-xl py-4 pl-12 pr-16 text-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors" />
+                placeholder={isLoading ? "Waiting for AI response..." : "Ask a follow-up question..."}
+                disabled={isLoading}
+                aria-busy={isLoading}
+                className={`w-full bg-[#1a1a1a] border border-gray-700 rounded-xl py-4 pl-12 pr-16 text-white placeholder-gray-400 focus:outline-none focus:border-gray-500 focus:ring-1 focus:ring-gray-500 transition-colors ${isLoading ? 'opacity-60 cursor-not-allowed' : ''}`}
+              />
               <div className="absolute right-4 flex items-center gap-2">
-                <button type="button" className="text-gray-400 hover:text-gray-300 transition-colors" title="Attach file">
+                <button type="button" disabled={isLoading} className={`text-gray-400 hover:text-gray-300 transition-colors ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`} title="Attach file">
                   📎
                 </button>
                 <button

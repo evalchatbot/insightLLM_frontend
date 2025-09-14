@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
-import { createSession, getGenres } from "../../api/endpoints"
+import { createSession, getGenres, createConversationEmpty } from "../../api/endpoints"
 import { useChatStore } from "../../store/chat"
 
 export default function Home() {
@@ -47,6 +47,14 @@ export default function Home() {
     }
 
     try {
+      // create conversation on server first
+      try {
+        const convo = await createConversationEmpty()
+        if (convo && convo.id) useAuthStore.getState().setConversationId(convo.id)
+      } catch (e) {
+        // ignore server failures; continue with local-only chat
+      }
+
       // reset chat and set the seed in the shared store so ChatPage consumes it immediately
       const chatStore = require("../../store/chat").useChatStore.getState()
       if (chatStore?.startNewChat) chatStore.startNewChat()
