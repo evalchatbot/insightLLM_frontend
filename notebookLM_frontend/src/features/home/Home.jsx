@@ -1,10 +1,12 @@
 "use client"
 
+
 import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
-import { createSession } from "../../api/endpoints"
+import { createSession, getGenres, createConversationEmpty, setStoredConversationId } from "../../api/endpoints"
+import { useChatStore } from "../../store/chat"
 
 export default function Home() {
   const token = useAuthStore((s) => s.accessToken)
@@ -16,50 +18,61 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("")
   const [busySession, setBusySession] = useState(false)
   const [isGenreDropdownOpen, setIsGenreDropdownOpen] = useState(false)
-  const [selectedGenre, setSelectedGenre] = useState("All Genres")
 
-  useEffect(() => {
-    if (token && !sessionId && searchQuery.trim()) {
-      handleNewSession()
-    }
-  }, [searchQuery, token, sessionId])
+  // Shared chat state for genre picker
+  const selectedGenre = useChatStore((s) => s.selectedGenre)
+  const setSelectedGenre = useChatStore((s) => s.setSelectedGenre)
 
-  async function handleNewSession() {
-    if (busySession) return
+  async function ensureSession() {
+    if (sessionId) return sessionId
+    if (busySession) return sessionId
     setBusySession(true)
     try {
       const res = await createSession()
       setSessionId(res.session_id)
-    } catch (e) {
-      console.error("Failed to create session:", e)
+      return res.session_id
     } finally {
       setBusySession(false)
     }
   }
 
-  function handleSearch(e) {
+  async function handleSearch(e) {
     e.preventDefault()
-    if (!searchQuery.trim()) return
+    const q = searchQuery.trim()
+    if (!q) return
 
     if (!token) {
       navigate("/login")
       return
     }
 
-    // Store the query and navigate to chat
-    localStorage.setItem("chat.seedPrompt", searchQuery.trim())
+    try {
+      // create conversation on server first
+      try {
+        const convo = await createConversationEmpty()
+        if (convo && convo.id) {
+          useAuthStore.getState().setConversationId(convo.id)
+          try { setStoredConversationId(convo.id) } catch (er) {}
+        }
+      } catch (e) {
+        // ignore server failures; continue with local-only chat
+      }
+
+      // reset chat and set the seed in the shared store so ChatPage consumes it immediately
+      const chatStore = require("../../store/chat").useChatStore.getState()
+      if (chatStore?.startNewChat) chatStore.startNewChat()
+      if (chatStore?.enterChat) chatStore.enterChat(q)
+    } catch (e) {
+      // fallback to localStorage if store call fails
+      try {
+        localStorage.setItem("chat.seedPrompt", q)
+      } catch {}
+    }
+    setSearchQuery("")
     navigate("/chat")
   }
 
-  const categories = [
-    { label: "Summarize", icon: "📄" },
-    { label: "Analyze", icon: "🔍" },
-    { label: "Quiz Me", icon: "❓" },
-    { label: "Explain", icon: "💡" },
-    { label: "Compare", icon: "⚖️" },
-  ]
-
-  const genres = [
+  const [genres, setGenres] = useState([
     "All Genres",
     "Fiction",
     "Non-Fiction",
@@ -70,10 +83,23 @@ export default function Home() {
     "Technology",
     "Business",
     "Self-Help",
-  ]
+  ])
+
+  useEffect(() => {
+    async function fetch() {
+      try {
+        const fetched = await getGenres()
+        if (fetched?.genres) setGenres(["All Genres", ...(fetched.genres || [])])
+      } catch (e) {
+        // ignore and keep static list
+      }
+    }
+    fetch()
+  }, [])
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16">
+    <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col px-4 transition-all duration-300 ease-in-out ml-64 sidebar-collapsed:ml-16 md:ml-64 md:sidebar-collapsed:ml-16 ml-0 sm:ml-16">
+      {/* Top-left genre picker */}
       <div className="relative w-full">
         <div className="absolute top-6 left-0 z-10">
           <div className="relative">
@@ -84,7 +110,6 @@ export default function Home() {
               <span>{selectedGenre}</span>
               <ChevronDown className={`w-4 h-4 transition-transform ${isGenreDropdownOpen ? "rotate-180" : ""}`} />
             </button>
-
             {isGenreDropdownOpen && (
               <div className="absolute top-full mt-2 w-48 bg-[#1a1a1a] rounded-lg shadow-lg overflow-hidden">
                 {genres.map((genre) => (
@@ -105,6 +130,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Hero + search only */}
       <div className="flex-1 flex flex-col items-center justify-center">
         <div className="text-center mb-12 pt-16">
           <h1 className="text-5xl md:text-6xl font-light tracking-wide mb-4">InsightLLM</h1>

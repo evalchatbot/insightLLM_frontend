@@ -5,6 +5,7 @@ export const useAuthStore = create(set => ({
   user: JSON.parse(localStorage.getItem('user') || 'null'),
   accessToken: localStorage.getItem('access_token') || '',
   sessionId: localStorage.getItem('session_id') || '',
+  conversationId: localStorage.getItem('conversation_id') || null,
 
   setFromSession: (session) => {
     const user = session?.user ?? null;
@@ -18,6 +19,12 @@ export const useAuthStore = create(set => ({
     if (sessionId) localStorage.setItem('session_id', sessionId);
     else localStorage.removeItem('session_id');
     set({ sessionId: sessionId || '' });
+  },
+
+  setConversationId: (conversationId) => {
+    if (conversationId) localStorage.setItem('conversation_id', conversationId);
+    else localStorage.removeItem('conversation_id');
+    set({ conversationId: conversationId || null });
   },
 
   logout: async () => {
