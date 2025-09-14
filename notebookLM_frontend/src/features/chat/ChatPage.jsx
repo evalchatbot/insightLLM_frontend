@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
 import { useChatStore } from "../../store/chat"
-import { createSession, askChat, getGenres, addConversationMessage, getConversation, getConversationMessages, createConversationAutoTitle } from "../../api/endpoints"
+import { createSession, askChat, getGenres, addConversationMessage, getConversation, getConversationMessages, createConversationAutoTitle, setStoredConversationId } from "../../api/endpoints"
 
 export default function ChatPage() {
   const token = useAuthStore((s) => s.accessToken)
@@ -66,13 +66,37 @@ export default function ChatPage() {
     fetchGenres()
   }, [])
 
-  // Hydrate conversation if conversationId exists
+  // Hydrate conversation when the active conversation id changes
   useEffect(() => {
     let mounted = true
     async function hydratePaged() {
       const stored = authConversationId || useAuthStore.getState().conversationId
-      if (!stored) return
+      // if no conversation selected, just clear local state
+      if (!stored) {
+        try {
+          const chatStore = require("../../store/chat").useChatStore.getState()
+          chatStore.startNewChat && chatStore.startNewChat()
+        } catch (er) {}
+        setConversationId(null)
+        // reset paging
+        setMessagesPage((p) => ({ ...p, offset: 0 }))
+        setHasMoreOlder(true)
+        setLoadingOlder(false)
+        return
+      }
+
+      // store the active id locally
       setConversationId(stored)
+
+      // reset local chat state and pagination before loading new convo
+      try {
+        const chatStore = require("../../store/chat").useChatStore.getState()
+        chatStore.startNewChat && chatStore.startNewChat()
+      } catch (er) {}
+      setMessagesPage((p) => ({ ...p, offset: 0 }))
+      setHasMoreOlder(true)
+      setLoadingOlder(false)
+
       try {
         // load initial page (most recent messages)
         const res = await getConversationMessages(stored, { limit: messagesPage.limit, offset: 0 })
@@ -80,7 +104,6 @@ export default function ChatPage() {
         if (mounted) {
           try {
             const chatStore = require("../../store/chat").useChatStore.getState()
-            if (chatStore?.startNewChat) chatStore.startNewChat()
             // map and append
             const mapped = serverMessages.map((m) => ({
               id: m.id || Date.now() + Math.random(),
@@ -92,7 +115,7 @@ export default function ChatPage() {
             setMessagesPage((p) => ({ ...p, offset: mapped.length }))
             setHasMoreOlder(mapped.length === messagesPage.limit)
           } catch (e) {
-            // ignore
+            // ignore mapping errors
           }
         }
       } catch (e) {
@@ -105,7 +128,8 @@ export default function ChatPage() {
     }
     hydratePaged()
     return () => { mounted = false }
-  }, [])
+    // re-run when the active conversation id or page size changes
+  }, [authConversationId, messagesPage.limit])
 
   // infinite scroll: load older when scrolled to top
   useEffect(() => {
@@ -159,7 +183,7 @@ export default function ChatPage() {
     const node = transcriptRef.current
     node.addEventListener('scroll', onScroll)
     return () => node.removeEventListener('scroll', onScroll)
-  }, [transcriptRef.current, hasMoreOlder, loadingOlder, conversationId, messagesPage.offset])
+  }, [transcriptRef.current, hasMoreOlder, loadingOlder, conversationId, messagesPage.offset, authConversationId])
 
   async function ensureSession() {
     if (sessionId) return sessionId

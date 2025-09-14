@@ -5,7 +5,7 @@ import { useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { ChevronDown } from "lucide-react"
 import { useAuthStore } from "../../store/auth"
-import { createSession, getGenres, createConversationEmpty } from "../../api/endpoints"
+import { createSession, getGenres, createConversationEmpty, setStoredConversationId } from "../../api/endpoints"
 import { useChatStore } from "../../store/chat"
 
 export default function Home() {
@@ -50,7 +50,10 @@ export default function Home() {
       // create conversation on server first
       try {
         const convo = await createConversationEmpty()
-        if (convo && convo.id) useAuthStore.getState().setConversationId(convo.id)
+        if (convo && convo.id) {
+          useAuthStore.getState().setConversationId(convo.id)
+          try { setStoredConversationId(convo.id) } catch (er) {}
+        }
       } catch (e) {
         // ignore server failures; continue with local-only chat
       }

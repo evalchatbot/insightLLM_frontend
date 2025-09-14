@@ -3,7 +3,7 @@
 import { Link, NavLink, useNavigate } from "react-router-dom"
 import { useAuthStore } from "../store/auth"
 import { useEffect, useState } from "react"
-import { listConversations, createConversationEmpty, updateConversation, deleteConversation } from "../api/endpoints"
+import { listConversations, createConversationEmpty, updateConversation, deleteConversation, getStoredConversationId, setStoredConversationId } from "../api/endpoints"
 import { PanelRight } from "lucide-react"
 
 
@@ -163,6 +163,8 @@ export default function Sidebar() {
                             const convo = await createConversationEmpty()
                             if (convo && convo.id) {
                               setConversationId(convo.id)
+                              // persist the selected conversation id to localStorage for refresh
+                              try { setStoredConversationId(convo.id) } catch (er) {}
                               console.debug('[Sidebar] new-chat OK', convo.id)
                             }
                           } catch (e) {
